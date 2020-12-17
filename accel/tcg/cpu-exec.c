@@ -35,6 +35,7 @@
 #endif
 #include "sysemu/cpus.h"
 #include "sysemu/replay.h"
+#include "qemu-cfg.h"
 
 /* -icount align implementation. */
 
@@ -53,6 +54,7 @@ typedef struct SyncClocks {
 #define THRESHOLD_REDUCE 1.5
 #define MAX_DELAY_PRINT_RATE 2000000000LL
 #define MAX_NB_PRINTS 100
+//uint64_t env_old_pc, env_new_pc;
 
 static void align_clocks(SyncClocks *sc, const CPUState *cpu)
 {
@@ -143,7 +145,7 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
     TranslationBlock *last_tb;
     int tb_exit;
     uint8_t *tb_ptr = itb->tc_ptr;
-
+//printf("%lx,", itb->pc);
     qemu_log_mask_and_addr(CPU_LOG_EXEC, itb->pc,
                            "Trace %p [%d: " TARGET_FMT_lx "] %s\n",
                            itb->tc_ptr, cpu->cpu_index, itb->pc,
@@ -368,6 +370,14 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
             }
 
             mmap_unlock();
+#if 0
+            // link new tb to cfg
+            if (tb && tb->pc <= afl_start_code && tb->pc >= afl_end_code)
+            {
+                cfg_link(cur_tb, tb);
+                cur_tb = tb;
+            }
+#endif
         }
 
         /* We add the TB in the virtual pc hash table for the fast lookup */
@@ -621,11 +631,15 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 
 /* main execution loop */
 
+extern abi_ulong afl_start_code, afl_end_code;
+extern target_ulong jmp_pc1, jmp_pc2;
+extern bool jmp_exit;
 int cpu_exec(CPUState *cpu)
 {
     CPUClass *cc = CPU_GET_CLASS(cpu);
     int ret;
     SyncClocks sc = { 0 };
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
 
     /* replay_interrupt may need current_cpu */
     current_cpu = cpu;
@@ -673,7 +687,21 @@ int cpu_exec(CPUState *cpu)
 
         while (!cpu_handle_interrupt(cpu, &last_tb)) {
             TranslationBlock *tb = tb_find(cpu, last_tb, tb_exit);
+            // gen_jcc generate jmp_pc1, jmp_pc2, jmp_exit
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
+#if 1
+            if (jmp_exit)
+            {
+                uint64_t exit_pc = env->eip;
+                if (exit_pc == jmp_pc1)
+                    branch_list_add(cpu, jmp_pc2);
+                else if(exit_pc == jmp_pc2)
+                    branch_list_add(cpu, jmp_pc1);
+                else
+                    printf("%lx %lx %lx\n", jmp_pc1, jmp_pc2, exit_pc);
+            }
+            jmp_exit = 0;
+#endif
             /* Try to align the host and virtual clocks
                if the guest is in advance */
             align_clocks(&sc, cpu);

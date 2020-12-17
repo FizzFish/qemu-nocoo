@@ -31,6 +31,8 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
+bool jmp_exit;
+target_ulong jmp_pc1, jmp_pc2;
 
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
@@ -2160,6 +2162,7 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     }
 }
 
+extern abi_ulong afl_start_code, afl_end_code;
 static inline void gen_jcc(DisasContext *s, int b,
                            target_ulong val, target_ulong next_eip)
 {
@@ -2174,6 +2177,17 @@ static inline void gen_jcc(DisasContext *s, int b,
         gen_set_label(l1);
         gen_goto_tb(s, 1, val);
         s->is_jmp = DISAS_TB_JUMP;
+#if 1
+        if(s->pc >= afl_start_code && s->pc <= afl_end_code)
+        {
+            jmp_pc1 = next_eip;
+            jmp_pc2 = val;
+            jmp_exit = 1;
+        //    printf("[%s:1] %lx  or  %lx\n", __func__, next_eip, val);
+        }
+        //printf("%lx,%lx,", next_eip, val);
+#endif
+
     } else {
         l1 = gen_new_label();
         l2 = gen_new_label();

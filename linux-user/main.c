@@ -36,6 +36,7 @@
 #include "exec/log.h"
 #include "trace/control.h"
 #include "glib-compat.h"
+#include "qemu-cfg.h"
 
 char *exec_path;
 
@@ -199,6 +200,39 @@ static void set_idt(int n, unsigned int dpl)
 }
 #endif
 
+BranchList branch_list;
+
+void branch_list_init(void)
+{
+    QLIST_INIT(&branch_list.branches);
+}   
+    
+void branch_list_add(CPUState * state, uint64_t pc) 
+{
+    printf("%s pc %lx\n", __func__, pc);
+    Branch * branch = malloc(sizeof(Branch));
+    branch->pc = pc;
+    branch->state = *state;
+    QLIST_INSERT_HEAD(&branch_list.branches, branch, node);
+}
+    
+void branch_remove(Branch *branch)
+{
+    QLIST_REMOVE(branch, node);
+}
+
+Branch * branch_list_pop(void)
+{
+    Branch * ret = (QLIST_FIRST(&branch_list.branches));
+    branch_remove(ret);
+    return ret;
+}
+
+bool branch_list_empty(void)
+{
+    return QLIST_EMPTY(&branch_list.branches);
+}
+
 void cpu_loop(CPUX86State *env)
 {
     CPUState *cs = CPU(x86_env_get_cpu(env));
@@ -206,6 +240,7 @@ void cpu_loop(CPUX86State *env)
     abi_ulong pc;
     abi_ulong ret;
     target_siginfo_t info;
+    branch_list_init();
 
     for(;;) {
         cpu_exec_start(cs);
@@ -234,6 +269,15 @@ void cpu_loop(CPUX86State *env)
 #ifndef TARGET_ABI32
         case EXCP_SYSCALL:
             /* linux syscall from syscall instruction */
+            if(env->regs[R_EAX] == TARGET_NR_exit_group) //exit_group syscall
+            {
+                printf("....................................\n");
+                while(!branch_list_empty())
+                {
+                    Branch * last = branch_list_pop();
+                    printf("last branch pc: %lx\n", last->pc);
+                }
+            }
             ret = do_syscall(env,
                              env->regs[R_EAX],
                              env->regs[R_EDI],

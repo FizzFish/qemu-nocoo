@@ -6553,6 +6553,9 @@ long do_rt_sigreturn(CPUArchState *env)
 
 #endif
 
+extern int cfg_explore;
+int critical_signal;
+
 static void handle_pending_signal(CPUArchState *cpu_env, int sig,
                                   struct emulated_sigtable *k)
 {
@@ -6562,6 +6565,7 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
     target_sigset_t target_old_set;
     struct target_sigaction *sa;
     TaskState *ts = cpu->opaque;
+    critical_signal = 0;
 
     trace_user_handle_signal(cpu_env, sig);
     /* dequeue signal */
@@ -6579,7 +6583,6 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
     if (do_strace) {
         print_taken_signal(sig, &k->info);
     }
-
     if (handler == TARGET_SIG_DFL) {
         /* default handler : ignore some signal. The other are job control or fatal */
         if (sig == TARGET_SIGTSTP || sig == TARGET_SIGTTIN || sig == TARGET_SIGTTOU) {
@@ -6588,11 +6591,19 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
                    sig != TARGET_SIGURG &&
                    sig != TARGET_SIGWINCH &&
                    sig != TARGET_SIGCONT) {
+            if (cfg_explore) {
+                critical_signal = 1;
+                return;
+            }
             dump_core_and_abort(sig);
         }
     } else if (handler == TARGET_SIG_IGN) {
         /* ignore sig */
     } else if (handler == TARGET_SIG_ERR) {
+        if (cfg_explore) {
+            critical_signal = 1;
+            return;
+        }
         dump_core_and_abort(sig);
     } else {
         /* compute the blocked signals during the handler execution */
@@ -6672,6 +6683,8 @@ void process_pending_signals(CPUArchState *cpu_env)
             }
 
             handle_pending_signal(cpu_env, sig, &ts->sync_signal);
+            if(critical_signal)
+                return;
         }
 
         for (sig = 1; sig <= TARGET_NSIG; sig++) {

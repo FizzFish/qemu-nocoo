@@ -200,19 +200,22 @@ static void set_idt(int n, unsigned int dpl)
 }
 #endif
 
+void graph_add_edge(uint64_t pc1, uint64_t pc2) {
+    printf("%s %#lx=>%#lx\n", __func__, pc1, pc2);
+}
 BranchList branch_list;
+int cfg_explore;
 
 void branch_list_init(void)
 {
     QLIST_INIT(&branch_list.branches);
 }   
     
-void branch_list_add(CPUState * state, uint64_t pc) 
+void branch_list_add(CPUArchState *env, uint64_t pc)
 {
-    printf("%s pc %lx\n", __func__, pc);
     Branch * branch = malloc(sizeof(Branch));
     branch->pc = pc;
-    branch->state = *state;
+    branch->env = *env;
     QLIST_INSERT_HEAD(&branch_list.branches, branch, node);
 }
     
@@ -233,6 +236,34 @@ bool branch_list_empty(void)
     return QLIST_EMPTY(&branch_list.branches);
 }
 
+extern __thread int have_tb_lock;
+void restore_last_branch(CPUX86State *old_env)
+{
+    if(!branch_list_empty())
+    {
+        //reload cpu state
+#if 0
+        X86CPU *cpu = x86_env_get_cpu(old_env);
+
+        Branch * last = branch_list_pop();
+        CPUArchState *env = &last->env;
+        env->eip = last->pc;
+        cpu->env = *env;
+#endif
+        Branch * last = branch_list_pop();
+        *old_env = last->env;
+        old_env->eip = last->pc;
+
+        printf("restore: %#lx\n", old_env->eip);
+        free(last);
+    } else {
+        printf("cfg explore end\n");
+        exit(0);
+    }
+}
+
+extern int critical_signal;
+extern target_ulong afl_start_code, afl_end_code;
 void cpu_loop(CPUX86State *env)
 {
     CPUState *cs = CPU(x86_env_get_cpu(env));
@@ -241,12 +272,26 @@ void cpu_loop(CPUX86State *env)
     abi_ulong ret;
     target_siginfo_t info;
     branch_list_init();
+    //afl_start_code = 0x40000006ca;
+    //afl_end_code = 0x4000000741;
+    goto cpu_exec;
+
+cfg_explore:
+    restore_last_branch(env);
+
+cpu_exec:
 
     for(;;) {
+#if 0
+        if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))
+            goto cfg_explore;
+#endif
         cpu_exec_start(cs);
         trapnr = cpu_exec(cs);
         cpu_exec_end(cs);
         process_queued_cpu_work(cs);
+        if(trapnr == EXCP_EXPLORE)
+            goto cfg_explore;
 
         switch(trapnr) {
         case 0x80:
@@ -271,12 +316,8 @@ void cpu_loop(CPUX86State *env)
             /* linux syscall from syscall instruction */
             if(env->regs[R_EAX] == TARGET_NR_exit_group) //exit_group syscall
             {
-                printf("....................................\n");
-                while(!branch_list_empty())
-                {
-                    Branch * last = branch_list_pop();
-                    printf("last branch pc: %lx\n", last->pc);
-                }
+                cfg_explore = 1;
+                goto cfg_explore;
             }
             ret = do_syscall(env,
                              env->regs[R_EAX],
@@ -411,6 +452,11 @@ void cpu_loop(CPUX86State *env)
             abort();
         }
         process_pending_signals(env);
+#if 1
+        if (critical_signal) {
+            goto cfg_explore;
+        }
+#endif
     }
 }
 #endif
@@ -4903,6 +4949,7 @@ int main(int argc, char **argv, char **envp)
         }
         gdb_handlesig(cpu, 0);
     }
+    cfg_explore = 0;
     cpu_loop(env);
     /* never exits */
     return 0;

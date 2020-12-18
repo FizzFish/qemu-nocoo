@@ -331,6 +331,8 @@ TranslationBlock *tb_htable_lookup(CPUState *cpu, target_ulong pc,
     return qht_lookup(&tcg_ctx.tb_ctx.htable, tb_cmp, &desc, h);
 }
 
+extern int cfg_explore;
+
 static inline TranslationBlock *tb_find(CPUState *cpu,
                                         TranslationBlock *last_tb,
                                         int tb_exit)
@@ -378,7 +380,8 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
                 cur_tb = tb;
             }
 #endif
-        }
+        } else if(cfg_explore)
+            return NULL;
 
         /* We add the TB in the virtual pc hash table for the fast lookup */
         atomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
@@ -686,21 +689,29 @@ int cpu_exec(CPUState *cpu)
         int tb_exit = 0;
 
         while (!cpu_handle_interrupt(cpu, &last_tb)) {
+            uint64_t start_pc = env->eip;
             TranslationBlock *tb = tb_find(cpu, last_tb, tb_exit);
+            if(cfg_explore && !tb)
+                return EXCP_EXPLORE;
             // gen_jcc generate jmp_pc1, jmp_pc2, jmp_exit
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
+            if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))
+                return EXCP_EXPLORE;
 #if 1
             if (jmp_exit)
             {
                 uint64_t exit_pc = env->eip;
-                if (exit_pc == jmp_pc1)
-                    branch_list_add(cpu, jmp_pc2);
-                else if(exit_pc == jmp_pc2)
-                    branch_list_add(cpu, jmp_pc1);
-                else
+                graph_add_edge(start_pc, exit_pc);
+                if (exit_pc == jmp_pc1) {
+                    graph_add_edge(start_pc, jmp_pc2);
+                    branch_list_add(env, jmp_pc2);
+                } else if(exit_pc == jmp_pc2) {
+                    graph_add_edge(start_pc, jmp_pc2);
+                    branch_list_add(env, jmp_pc1);
+                } else
                     printf("%lx %lx %lx\n", jmp_pc1, jmp_pc2, exit_pc);
+                jmp_exit = 0;
             }
-            jmp_exit = 0;
 #endif
             /* Try to align the host and virtual clocks
                if the guest is in advance */

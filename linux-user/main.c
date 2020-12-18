@@ -199,10 +199,12 @@ static void set_idt(int n, unsigned int dpl)
     set_gate(idt_table + n, 0, dpl, 0, 0);
 }
 #endif
-
+int graph_edge_num;
 void graph_add_edge(uint64_t pc1, uint64_t pc2) {
     printf("%s %#lx=>%#lx\n", __func__, pc1, pc2);
+    graph_edge_num++;
 }
+
 BranchList branch_list;
 int cfg_explore;
 
@@ -257,7 +259,7 @@ void restore_last_branch(CPUX86State *old_env)
         printf("restore: %#lx\n", old_env->eip);
         free(last);
     } else {
-        printf("cfg explore end\n");
+        printf("cfg explore end, edge num is %d\n", graph_edge_num);
         exit(0);
     }
 }
@@ -272,6 +274,7 @@ void cpu_loop(CPUX86State *env)
     abi_ulong ret;
     target_siginfo_t info;
     branch_list_init();
+    graph_edge_num = 0;
     //afl_start_code = 0x40000006ca;
     //afl_end_code = 0x4000000741;
     goto cpu_exec;

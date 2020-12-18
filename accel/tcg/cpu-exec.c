@@ -697,7 +697,6 @@ int cpu_exec(CPUState *cpu)
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
             if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))
                 return EXCP_EXPLORE;
-#if 1
             if (jmp_exit)
             {
                 uint64_t exit_pc = env->eip;
@@ -708,11 +707,12 @@ int cpu_exec(CPUState *cpu)
                 } else if(exit_pc == jmp_pc2) {
                     graph_add_edge(start_pc, jmp_pc2);
                     branch_list_add(env, jmp_pc1);
-                } else
-                    printf("%lx %lx %lx\n", jmp_pc1, jmp_pc2, exit_pc);
+                } else {
+                    // shouldnot be there
+                    ;//printf("%lx %lx %lx\n", jmp_pc1, jmp_pc2, exit_pc);
+                }
                 jmp_exit = 0;
             }
-#endif
             /* Try to align the host and virtual clocks
                if the guest is in advance */
             align_clocks(&sc, cpu);

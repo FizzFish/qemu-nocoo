@@ -4087,6 +4087,12 @@ static void handle_arg_strace(const char *arg)
     do_strace = 1;
 }
 
+static void handle_fuzz_strace(const char *arg)
+{
+    pre_strace = 0;
+    fuzz_strace = 0;
+}
+
 static void handle_arg_cfg(const char *arg)
 {
     do_cfg = 1;
@@ -4151,6 +4157,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
+    {"fuzz_strace",     "QEMU_FUZZ_STRACE",      false, handle_fuzz_strace,
+      "",           "check the last M system calls"},
     {"cfg",     "GET_CFG",      false, handle_arg_cfg,
      "",           "get cfg of binary input"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,

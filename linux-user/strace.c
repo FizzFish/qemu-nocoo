@@ -12,6 +12,56 @@
 #include "qemu.h"
 
 int do_strace=0;
+int pre_strace=0;
+int fuzz_strace=0;
+
+int pre_syscalls[PRE_SYS_NUM] = {0};
+int fuzz_syscalls[FUZZ_SYS_NUM] = {0};
+int fuzz_strace_p = 0;
+
+void print_syscall_array(int * array, int num);
+// load pre_syscalls
+void load_pre_syscalls(void) {
+    printf("%s: load...\n", __func__);
+    if(read(STRACE_FD+1, pre_syscalls, 4 * PRE_SYS_NUM) != 4 * PRE_SYS_NUM)
+        exit(2);
+    print_syscall_array(pre_syscalls, PRE_SYS_NUM);
+    fuzz_strace = 1;
+}
+
+// send syscalls
+void send_syscalls(int num) {
+    if(write(STRACE_FD, &num, 4) != 4)
+        exit(2);
+}
+
+// record fuzz syscalls
+void record_fuzz_syscall(int num) {
+    fuzz_syscalls[fuzz_strace_p] = num;
+    fuzz_strace_p = (fuzz_strace_p + 1) % FUZZ_SYS_NUM;
+}
+// compute the lms of syscalls
+int check_ratio(void) {
+    int i, j;
+    double ratio = 0.8;
+    int sim[PRE_SYS_NUM+1][FUZZ_SYS_NUM+1] = {0};
+    int order_fuzz_syscalls[FUZZ_SYS_NUM];
+    for(i=0;i<FUZZ_SYS_NUM;i++)
+        order_fuzz_syscalls[i] = fuzz_syscalls[(i+fuzz_strace_p)%FUZZ_SYS_NUM];
+    for(i = 1; i <= PRE_SYS_NUM; i++)
+        for(j = 1; j <= FUZZ_SYS_NUM; j++)
+            if(pre_syscalls[i-1] == order_fuzz_syscalls[j-1])
+                sim[i][j] = sim[i-1][j-1] + 1;
+            else
+                sim[i][j] = sim[i-1][j] > sim[i][j-1] ? sim[i-1][j] : sim[i][j-1];
+    if (sim[PRE_SYS_NUM][FUZZ_SYS_NUM] >= ratio * FUZZ_SYS_NUM)
+    {
+//        printf("find end...\n");
+//        print_syscall_array(order_fuzz_syscalls, FUZZ_SYS_NUM);
+        return 1;
+    }
+    return 0;
+}
 
 struct syscallname {
     int nr;
@@ -2618,7 +2668,14 @@ print_syscall(int num,
         }
     gemu_log("Unknown syscall %d\n", num);
 }
-
+void print_syscall_array(int * array, int num) {
+    int i, j;
+    for(i=0;i<num;i++)
+        for(j=0;j<nsyscalls;j++)
+            if(scnames[j].nr == array[i])
+                printf("[%d, %s]", array[i], scnames[j].name);
+    printf("\n");
+}
 
 void
 print_syscall_ret(int num, abi_long ret)

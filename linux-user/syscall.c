@@ -116,6 +116,8 @@ int __clone2(int (*fn)(void *), void *child_stack_base,
 
 #include "qemu.h"
 
+unsigned int afl_forksrv_pid;
+
 #ifndef CLONE_IO
 #define CLONE_IO                0x80000000      /* Clone io context */
 #endif
@@ -7722,8 +7724,16 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
     gemu_log("syscall %d", num);
 #endif
     trace_guest_user_syscall(cpu, num, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-    if(do_strace) {
+    if(do_strace)
         print_syscall(num, arg1, arg2, arg3, arg4, arg5, arg6);
+    if(pre_strace) {
+        send_syscalls(num);
+    }
+    else if(fuzz_strace) {
+        record_fuzz_syscall(num);
+        if(check_ratio()) {
+            exit(0);
+        }
     }
 
     switch(num) {
@@ -11689,8 +11699,21 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         break;
 
     case TARGET_NR_tgkill:
-        ret = get_errno(safe_tgkill((int)arg1, (int)arg2,
-                        target_to_host_signal(arg3)));
+
+        {
+          int pid  = (int)arg1,
+              tgid = (int)arg2,
+              sig  = (int)arg3;
+
+          /* Not entirely sure if the below is correct for all architectures. */
+
+          if(afl_forksrv_pid && afl_forksrv_pid == pid && sig == SIGABRT)
+              pid = tgid = getpid();
+
+          ret = get_errno(safe_tgkill(pid, tgid, target_to_host_signal(sig)));
+
+        }
+
         break;
 
 #ifdef TARGET_NR_set_robust_list

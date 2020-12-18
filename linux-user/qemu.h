@@ -17,6 +17,7 @@
 #include "target_syscall.h"
 #include "exec/gdbstub.h"
 #include "qemu/queue.h"
+#include "afl-info.h"
 
 #define THREAD __thread
 
@@ -364,6 +365,7 @@ int host_to_target_waitstatus(int status);
 void print_syscall(int num,
                    abi_long arg1, abi_long arg2, abi_long arg3,
                    abi_long arg4, abi_long arg5, abi_long arg6);
+void print_simple_syscall(int num);
 void print_syscall_ret(int num, abi_long arg1);
 /**
  * print_taken_signal:
@@ -376,6 +378,10 @@ void print_syscall_ret(int num, abi_long arg1);
  */
 void print_taken_signal(int target_signum, const target_siginfo_t *tinfo);
 extern int do_strace;
+extern int pre_strace;
+extern int fuzz_strace;
+extern int pre_syscalls[PRE_SYS_NUM];
+extern int fuzz_syscalls[FUZZ_SYS_NUM];
 
 /* signal.c */
 void process_pending_signals(CPUArchState *cpu_env);

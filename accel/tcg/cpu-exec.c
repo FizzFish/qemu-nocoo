@@ -637,6 +637,8 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 extern abi_ulong afl_start_code, afl_end_code;
 extern target_ulong jmp_pc1, jmp_pc2;
 extern bool jmp_exit;
+extern int do_cfg;
+
 int cpu_exec(CPUState *cpu)
 {
     CPUClass *cc = CPU_GET_CLASS(cpu);
@@ -697,7 +699,7 @@ int cpu_exec(CPUState *cpu)
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
             if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))
                 return EXCP_EXPLORE;
-            if (jmp_exit)
+            if (do_cfg && jmp_exit)
             {
                 uint64_t exit_pc = env->eip;
                 graph_add_edge(start_pc, exit_pc);

@@ -199,6 +199,7 @@ static void set_idt(int n, unsigned int dpl)
     set_gate(idt_table + n, 0, dpl, 0, 0);
 }
 #endif
+
 int graph_edge_num;
 void graph_add_edge(uint64_t pc1, uint64_t pc2) {
     printf("%s %#lx=>%#lx\n", __func__, pc1, pc2);
@@ -207,6 +208,7 @@ void graph_add_edge(uint64_t pc1, uint64_t pc2) {
 
 BranchList branch_list;
 int cfg_explore;
+int do_cfg = 0;
 
 void branch_list_init(void)
 {
@@ -244,14 +246,6 @@ void restore_last_branch(CPUX86State *old_env)
     if(!branch_list_empty())
     {
         //reload cpu state
-#if 0
-        X86CPU *cpu = x86_env_get_cpu(old_env);
-
-        Branch * last = branch_list_pop();
-        CPUArchState *env = &last->env;
-        env->eip = last->pc;
-        cpu->env = *env;
-#endif
         Branch * last = branch_list_pop();
         *old_env = last->env;
         old_env->eip = last->pc;
@@ -285,14 +279,11 @@ cfg_explore:
 cpu_exec:
 
     for(;;) {
-#if 0
-        if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))
-            goto cfg_explore;
-#endif
         cpu_exec_start(cs);
         trapnr = cpu_exec(cs);
         cpu_exec_end(cs);
         process_queued_cpu_work(cs);
+
         if(trapnr == EXCP_EXPLORE)
             goto cfg_explore;
 
@@ -317,7 +308,7 @@ cpu_exec:
 #ifndef TARGET_ABI32
         case EXCP_SYSCALL:
             /* linux syscall from syscall instruction */
-            if(env->regs[R_EAX] == TARGET_NR_exit_group) //exit_group syscall
+            if(do_cfg && env->regs[R_EAX] == TARGET_NR_exit_group) //exit_group syscall
             {
                 cfg_explore = 1;
                 goto cfg_explore;
@@ -4096,6 +4087,11 @@ static void handle_arg_strace(const char *arg)
     do_strace = 1;
 }
 
+static void handle_arg_cfg(const char *arg)
+{
+    do_cfg = 1;
+}
+
 static void handle_arg_version(const char *arg)
 {
     printf("qemu-" TARGET_NAME " version " QEMU_VERSION QEMU_PKGVERSION
@@ -4155,6 +4151,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
+    {"cfg",     "GET_CFG",      false, handle_arg_cfg,
+     "",           "get cfg of binary input"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,
      "",           "Seed for pseudo-random number generator"},
     {"trace",      "QEMU_TRACE",       true,  handle_arg_trace,

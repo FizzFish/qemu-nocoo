@@ -54,11 +54,11 @@
    regular instrumentation injected via afl-as.h. */
 
 #define AFL_QEMU_CPU_SNIPPET2 do { \
-    if(itb->pc == afl_entry_point) { \
+    if(tb->pc == afl_entry_point) { \
       afl_setup(); \
       afl_forkserver(cpu); \
     } \
-    afl_maybe_log(itb->pc); \
+    afl_maybe_log(last_tb->pc, tb->pc); \
   } while (0)
 
 /* We use one additional file descriptor to relay "needs translation"
@@ -81,6 +81,7 @@ extern abi_ulong afl_entry_point, /* ELF entry point (_start) */
 static unsigned char afl_fork_child;
 static int init_pre_syscalls = 0;
 extern int pre_strace;
+extern int do_cfg;
 
 /* Instrumentation ratio: */
 
@@ -90,7 +91,7 @@ static unsigned int afl_inst_rms = MAP_SIZE;
 
 static void afl_setup(void);
 static void afl_forkserver(CPUState*);
-static inline void afl_maybe_log(abi_ulong);
+static inline void afl_maybe_log(abi_ulong, abi_ulong);
 
 static void afl_wait_tsl(CPUState*, int);
 static void afl_request_tsl(target_ulong, target_ulong, uint64_t);
@@ -190,12 +191,14 @@ static void afl_forkserver(CPUState *cpu) {
     /* Whoops, parent dead? */
 
     if (read(FORKSRV_FD, &mode, 4) != 4) exit(2);
-    if (mode == 1)
+    if (mode == 1) {
         pre_strace = 1;
-    if (mode == 2 && !init_pre_syscalls) {
+    } else if (mode == 2 && !init_pre_syscalls) {
         pre_strace = 0;
         load_pre_syscalls();
         init_pre_syscalls = 1;
+    } else if (mode == 3) {
+        do_cfg = 1;
     }
 
     /* Establish a channel with child to grab translation commands. We'll
@@ -242,9 +245,7 @@ static void afl_forkserver(CPUState *cpu) {
 
 /* The equivalent of the tuple logging routine from afl-as.h. */
 
-static inline void afl_maybe_log(abi_ulong cur_loc) {
-
-  static __thread abi_ulong prev_loc;
+static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
 
   /* Optimize for cur_loc > afl_end_code, which is the most likely case on
      Linux systems. */
@@ -256,6 +257,9 @@ static inline void afl_maybe_log(abi_ulong cur_loc) {
      concern. Phew. But instruction addresses may be aligned. Let's mangle
      the value to get something quasi-uniform. */
 
+  prev_loc  = (prev_loc >> 4) ^ (prev_loc << 8);
+  prev_loc &= MAP_SIZE - 1;
+
   cur_loc  = (cur_loc >> 4) ^ (cur_loc << 8);
   cur_loc &= MAP_SIZE - 1;
 
@@ -265,7 +269,6 @@ static inline void afl_maybe_log(abi_ulong cur_loc) {
   if (cur_loc >= afl_inst_rms) return;
 
   afl_area_ptr[cur_loc ^ prev_loc]++;
-  prev_loc = cur_loc >> 1;
 
 }
 

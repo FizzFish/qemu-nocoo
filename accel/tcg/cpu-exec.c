@@ -147,7 +147,7 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
     int tb_exit;
     uint8_t *tb_ptr = itb->tc_ptr;
 
-    AFL_QEMU_CPU_SNIPPET2;
+        //AFL_QEMU_CPU_SNIPPET2;
 
     qemu_log_mask_and_addr(CPU_LOG_EXEC, itb->pc,
                            "Trace %p [%d: " TARGET_FMT_lx "] %s\n",
@@ -345,6 +345,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     target_ulong cs_base, pc;
     uint32_t flags;
     bool have_tb_lock = false;
+    bool find_fast = true;
 
     /* we record a subset of the CPU state. It will
        always be the same before a given translated block
@@ -371,24 +372,21 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
             tb = tb_htable_lookup(cpu, pc, cs_base, flags);
             if (!tb) {
                 /* if no translated code available, then translate it now */
+                find_fast = false;
                 tb = tb_gen_code(cpu, pc, cs_base, flags, 0);
                 AFL_QEMU_CPU_SNIPPET1;
             }
 
             mmap_unlock();
-#if 0
-            // link new tb to cfg
-            if (tb && tb->pc <= afl_start_code && tb->pc >= afl_end_code)
-            {
-                cfg_link(cur_tb, tb);
-                cur_tb = tb;
-            }
-#endif
-        } else if(cfg_explore)
-            return NULL;
+        }
 
         /* We add the TB in the virtual pc hash table for the fast lookup */
         atomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
+    }
+    if (!find_fast && last_tb) {
+        AFL_QEMU_CPU_SNIPPET2;
+    } else if (find_fast && cfg_explore) {
+        return NULL;
     }
 #ifndef CONFIG_USER_ONLY
     /* We don't take care of direct jumps when address mapping changes in
@@ -640,7 +638,7 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 
 extern target_ulong jmp_pc1, jmp_pc2;
 extern bool jmp_exit;
-extern int do_cfg;
+//extern int do_cfg;
 
 int cpu_exec(CPUState *cpu)
 {
@@ -696,8 +694,11 @@ int cpu_exec(CPUState *cpu)
         while (!cpu_handle_interrupt(cpu, &last_tb)) {
             uint64_t start_pc = env->eip;
             TranslationBlock *tb = tb_find(cpu, last_tb, tb_exit);
-            if(cfg_explore && !tb)
+            if(cfg_explore && !tb) {
+                if(last_tb)
+                    graph_add_edge(last_tb->pc, start_pc);
                 return EXCP_EXPLORE;
+            }
             // gen_jcc generate jmp_pc1, jmp_pc2, jmp_exit
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
             if(cfg_explore && (env->eip < afl_start_code || env->eip > afl_end_code))

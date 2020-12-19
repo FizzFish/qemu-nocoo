@@ -374,7 +374,8 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
                 /* if no translated code available, then translate it now */
                 find_fast = false;
                 tb = tb_gen_code(cpu, pc, cs_base, flags, 0);
-                AFL_QEMU_CPU_SNIPPET1;
+                if (!do_cfg)
+                    AFL_QEMU_CPU_SNIPPET1;
             }
 
             mmap_unlock();
@@ -383,10 +384,30 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
         /* We add the TB in the virtual pc hash table for the fast lookup */
         atomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
     }
-    if (!find_fast && last_tb) {
-        AFL_QEMU_CPU_SNIPPET2;
-    } else if (find_fast && cfg_explore) {
-        return NULL;
+    /* 1. CFG mode:
+     *  1.1. entry_point: afl_setup, afl_forkserver
+     *  1.2. find_fast: mark tb
+     *      1.2.1. cfg_explore: return and restore_last_branch
+     * 2. No cfg mode: afl_maybe_log
+     */
+    if (tb->pc == afl_entry_point) {
+        if(do_cfg) printf("errrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n");
+        if (afl_setup()) {
+            do_cfg = 1;
+            tb_unlock();
+            afl_forkserver(cpu);
+            // child will reach there
+            tb_lock();
+        }
+    }
+    if(do_cfg) {
+        if (find_fast) {
+            afl_mark_cfg(tb->pc);
+            if (cfg_explore)
+                return NULL;
+        }
+    } else if (last_tb) {
+        afl_maybe_log(last_tb->pc, tb->pc);
     }
 #ifndef CONFIG_USER_ONLY
     /* We don't take care of direct jumps when address mapping changes in
@@ -694,7 +715,7 @@ int cpu_exec(CPUState *cpu)
         while (!cpu_handle_interrupt(cpu, &last_tb)) {
             uint64_t start_pc = env->eip;
             TranslationBlock *tb = tb_find(cpu, last_tb, tb_exit);
-            if(cfg_explore && !tb) {
+            if(cfg_explore && !tb) { // find old tb
                 if(last_tb)
                     graph_add_edge(last_tb->pc, start_pc);
                 return EXCP_EXPLORE;
@@ -706,12 +727,11 @@ int cpu_exec(CPUState *cpu)
             if (do_cfg && jmp_exit)
             {
                 uint64_t exit_pc = env->eip;
-                graph_add_edge(start_pc, exit_pc);
+                graph_add_edge(start_pc, jmp_pc1);
+                graph_add_edge(start_pc, jmp_pc2);
                 if (exit_pc == jmp_pc1) {
-                    graph_add_edge(start_pc, jmp_pc2);
                     branch_list_add(env, jmp_pc2);
                 } else if(exit_pc == jmp_pc2) {
-                    graph_add_edge(start_pc, jmp_pc2);
                     branch_list_add(env, jmp_pc1);
                 } else {
                     // shouldnot be there

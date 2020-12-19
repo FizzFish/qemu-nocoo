@@ -45,20 +45,13 @@
    it to translate within its own context, too (this avoids translation
    overhead in the next forked-off copy). */
 
+#define NORMAL 0
+#define PRE_STRACE 1
+#define FUZZ_STRACE 2
+#define CFG 3
+
 #define AFL_QEMU_CPU_SNIPPET1 do { \
     afl_request_tsl(pc, cs_base, flags); \
-  } while (0)
-
-/* This snippet kicks in when the instruction pointer is positioned at
-   _start and does the usual forkserver stuff, not very different from
-   regular instrumentation injected via afl-as.h. */
-
-#define AFL_QEMU_CPU_SNIPPET2 do { \
-    if(tb->pc == afl_entry_point) { \
-      afl_setup(); \
-      afl_forkserver(cpu); \
-    } \
-    afl_maybe_log(last_tb->pc, tb->pc); \
   } while (0)
 
 /* We use one additional file descriptor to relay "needs translation"
@@ -89,12 +82,13 @@ static unsigned int afl_inst_rms = MAP_SIZE;
 
 /* Function declarations. */
 
-static void afl_setup(void);
+static bool afl_setup(void);
 static void afl_forkserver(CPUState*);
 static inline void afl_maybe_log(abi_ulong, abi_ulong);
 
 static void afl_wait_tsl(CPUState*, int);
 static void afl_request_tsl(target_ulong, target_ulong, uint64_t);
+static void afl_wait_cfg(int fd);
 
 /* Data structure passed around by the translate handlers: */
 
@@ -115,7 +109,7 @@ static inline TranslationBlock *tb_find(CPUState*, TranslationBlock*, int);
 
 /* Set up SHM region and initialize other stuff. */
 
-static void afl_setup(void) {
+static bool afl_setup(void) {
 
   char *id_str = getenv(SHM_ENV_VAR),
        *inst_r = getenv("AFL_INST_RATIO");
@@ -148,7 +142,8 @@ static void afl_setup(void) {
     if (inst_r) afl_area_ptr[0] = 1;
 
 
-  }
+  } else
+      return false;
 
   if (getenv("AFL_INST_LIBS")) {
 
@@ -162,6 +157,7 @@ static void afl_setup(void) {
      behaviour, and seems to work alright? */
 
   rcu_disable_atfork();
+  return true;
 
 }
 
@@ -191,22 +187,20 @@ static void afl_forkserver(CPUState *cpu) {
     /* Whoops, parent dead? */
 
     if (read(FORKSRV_FD, &mode, 4) != 4) exit(2);
-    if (mode == 1) {
+    printf("%s mode = %d, cfg=%d\n", __func__, mode,do_cfg);
+    if (mode == PRE_STRACE) {
         pre_strace = 1;
-    } else if (mode == 2 && !init_pre_syscalls) {
+    } else if (mode == FUZZ_STRACE && !init_pre_syscalls) {
         pre_strace = 0;
         load_pre_syscalls();
         init_pre_syscalls = 1;
-    } else if (mode == 3) {
-        do_cfg = 1;
     }
 
     /* Establish a channel with child to grab translation commands. We'll
        read from t_fd[0], child will write to TSL_FD. */
 
-    //if (pipe(t_fd) || dup2(t_fd[1], TSL_FD) < 0) exit(3);
-    //close(t_fd[1]);
-    if (pipe(t_fd)) exit(3);
+    if (pipe(t_fd) || dup2(t_fd[1], TSL_FD) < 0) exit(3);
+    close(t_fd[1]);
 
     child_pid = fork();
     if (child_pid < 0) exit(4);
@@ -226,13 +220,16 @@ static void afl_forkserver(CPUState *cpu) {
 
     /* Parent. */
 
-    close(t_fd[1]);
+    close(TSL_FD);
     close(STRACE_FD);
 
     if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(5);
 
     /* Collect translation requests until child dies and closes the pipe. */
-    afl_wait_tsl(cpu, t_fd[0]);
+    if(do_cfg)
+        afl_wait_cfg(t_fd[0]);
+    else
+        afl_wait_tsl(cpu, t_fd[0]);
 
     /* Get and relay exit status to parent. */
     if (waitpid(child_pid, &status, 0) < 0) exit(6);
@@ -251,6 +248,8 @@ static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
      Linux systems. */
 
   if (cur_loc > afl_end_code || cur_loc < afl_start_code || !afl_area_ptr)
+    return;
+  if (!cfg_htable_lookup(cur_loc))
     return;
 
   /* Looks like QEMU always maps to fixed locations, so ASAN is not a
@@ -291,6 +290,33 @@ static void afl_request_tsl(target_ulong pc, target_ulong cb, uint64_t flags) {
   if (write(TSL_FD, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
     return;
 
+}
+
+static void afl_mark_cfg(target_ulong pc) {
+  CFGPoint cfg = {pc};
+  //printf("%s write %lx\n", __func__, pc);
+  if (write(TSL_FD, &cfg, sizeof(CFGPoint)) != sizeof(CFGPoint))
+      return;
+
+}
+
+static void afl_wait_cfg(int fd) {
+
+  CFGPoint cfg;
+
+  while (1) {
+
+    /* Broken pipe means it's time to return to the fork server routine. */
+    if (read(fd, &cfg, sizeof(CFGPoint)) != sizeof(CFGPoint))
+      break;
+
+    if (!cfg_htable_lookup(cfg.pc)) {
+        cfg_htable_add(cfg.pc);
+    }
+
+  }
+
+  close(fd);
 }
 
 /* This is the other side of the same channel. Since timeouts are handled by

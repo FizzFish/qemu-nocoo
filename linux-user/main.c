@@ -200,9 +200,48 @@ static void set_idt(int n, unsigned int dpl)
 }
 #endif
 
+struct qht cfg_htable;
 int graph_edge_num;
+
+void cfg_htable_init(void)
+{
+    unsigned int mode = QHT_MODE_AUTO_RESIZE;
+
+    qht_init(&cfg_htable, CODE_GEN_HTABLE_SIZE, mode);
+}
+
+static uint32_t hash32(target_ulong pc) {
+    if (sizeof(target_ulong) == 64)
+        return (pc >> 32) ^ (pc & 0xffffffff);
+    return pc;
+}
+#if 1
+static bool cfg_cmp(const void *p, const void *d)
+{
+    const CFGPoint * cfg = p;
+    const int * pc = d;
+    if (cfg->pc == *pc)
+        return true;
+    return false;
+}
+#endif
+
+CFGPoint* cfg_htable_lookup(target_ulong pc)
+{
+    uint32_t h = hash32(pc);
+    CFGPoint* ret = qht_lookup(&cfg_htable, cfg_cmp, &pc, h);
+    return ret;
+}
+
+void cfg_htable_add(target_ulong pc) {
+    uint32_t h = hash32(pc);
+    CFGPoint * cfg_ptr = malloc(sizeof(CFGPoint));
+    cfg_ptr->pc = pc;
+    qht_insert(&cfg_htable, cfg_ptr, h);
+}
+
 void graph_add_edge(uint64_t pc1, uint64_t pc2) {
-    printf("%s %#lx=>%#lx\n", __func__, pc1, pc2);
+    //printf("%s %#lx=>%#lx\n", __func__, pc1, pc2);
     graph_edge_num++;
 }
 
@@ -268,6 +307,7 @@ void cpu_loop(CPUX86State *env)
     abi_ulong ret;
     target_siginfo_t info;
     branch_list_init();
+    cfg_htable_init();
     graph_edge_num = 0;
     //afl_start_code = 0x40000006ca;
     //afl_end_code = 0x4000000741;

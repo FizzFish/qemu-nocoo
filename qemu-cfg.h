@@ -4,8 +4,20 @@
 #include "qemu/queue.h"
 #include "qemu/typedefs.h"
 
-void graph_add_edge(uint64_t, uint64_t);
+typedef struct CFGPoint CFGPoint;
 typedef struct Branch Branch;
+
+struct CFGPoint
+{
+    uint64_t pc;
+};
+void cfg_htable_init(void);
+
+CFGPoint* cfg_htable_lookup(target_ulong pc);
+void cfg_htable_add(target_ulong);
+
+void graph_add_edge(uint64_t, uint64_t);
+
 
 struct Branch
 {

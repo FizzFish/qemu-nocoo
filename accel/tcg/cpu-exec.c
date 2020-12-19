@@ -374,7 +374,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
                 /* if no translated code available, then translate it now */
                 find_fast = false;
                 tb = tb_gen_code(cpu, pc, cs_base, flags, 0);
-                if (!do_cfg)
+                if (!do_cfg && !pre_strace)
                     AFL_QEMU_CPU_SNIPPET1;
             }
 
@@ -391,7 +391,6 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
      * 2. No cfg mode: afl_maybe_log
      */
     if (tb->pc == afl_entry_point) {
-        if(do_cfg) printf("errrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n");
         if (afl_setup()) {
             do_cfg = 1;
             tb_unlock();
@@ -406,7 +405,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
             if (cfg_explore)
                 return NULL;
         }
-    } else if (last_tb) {
+    } else if ((fuzz_strace || fuzz_normal) && last_tb) {
         afl_maybe_log(last_tb->pc, tb->pc);
     }
 #ifndef CONFIG_USER_ONLY

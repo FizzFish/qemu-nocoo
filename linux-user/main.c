@@ -279,7 +279,6 @@ bool branch_list_empty(void)
     return QLIST_EMPTY(&branch_list.branches);
 }
 
-extern __thread int have_tb_lock;
 void restore_last_branch(CPUX86State *old_env)
 {
     if(!branch_list_empty())
@@ -289,7 +288,7 @@ void restore_last_branch(CPUX86State *old_env)
         *old_env = last->env;
         old_env->eip = last->pc;
 
-        printf("restore: %#lx\n", old_env->eip);
+        //printf("restore: %#lx\n", old_env->eip);
         free(last);
     } else {
         printf("cfg explore end, edge num is %d\n", graph_edge_num);
@@ -487,7 +486,7 @@ cpu_exec:
         }
         process_pending_signals(env);
 #if 1
-        if (critical_signal) {
+        if (do_cfg && critical_signal) {
             goto cfg_explore;
         }
 #endif
@@ -4197,8 +4196,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
-    {"fuzz_strace",     "QEMU_FUZZ_STRACE",      false, handle_fuzz_strace,
-      "",           "check the last M system calls"},
+    {"fuzz",     "QEMU_FUZZ",      false, handle_fuzz_strace,
+      "",           "start qemu with afl-fuzz mode"},
     {"cfg",     "GET_CFG",      false, handle_arg_cfg,
      "",           "get cfg of binary input"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,

@@ -7,8 +7,8 @@
 #define FUZZ_SYS_NUM 10
 
 #define STRACE_FD 192
+#define TSL_FD (FORKSRV_FD - 1)
 extern unsigned int afl_forksrv_pid;
 int check_ratio(void);
 void send_syscalls(int num);
-void load_pre_syscalls(void);
 void record_fuzz_syscall(int num);

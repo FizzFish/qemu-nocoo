@@ -14,24 +14,17 @@
 int do_strace=0;
 int pre_strace=0;
 int fuzz_strace=0;
+int fuzz_normal=0;
 
 int pre_syscalls[PRE_SYS_NUM] = {0};
 int fuzz_syscalls[FUZZ_SYS_NUM] = {0};
 int fuzz_strace_p = 0;
 
 void print_syscall_array(int * array, int num);
-// load pre_syscalls
-void load_pre_syscalls(void) {
-    printf("%s: load...\n", __func__);
-    if(read(STRACE_FD+1, pre_syscalls, 4 * PRE_SYS_NUM) != 4 * PRE_SYS_NUM)
-        exit(2);
-    print_syscall_array(pre_syscalls, PRE_SYS_NUM);
-    fuzz_strace = 1;
-}
 
 // send syscalls
 void send_syscalls(int num) {
-    if(write(STRACE_FD, &num, 4) != 4)
+    if(write(TSL_FD, &num, 4) != 4)
         exit(2);
 }
 

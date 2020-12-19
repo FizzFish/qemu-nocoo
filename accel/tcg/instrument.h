@@ -50,6 +50,8 @@
 #define FUZZ_STRACE 2
 #define CFG 3
 
+static uint32_t pre_syscalls[PRE_SYS_NUM];
+
 #define AFL_QEMU_CPU_SNIPPET1 do { \
     afl_request_tsl(pc, cs_base, flags); \
   } while (0)
@@ -57,7 +59,6 @@
 /* We use one additional file descriptor to relay "needs translation"
    messages between the child and the fork server. */
 
-#define TSL_FD (FORKSRV_FD - 1)
 
 /* This is equivalent to afl-as.h: */
 
@@ -72,8 +73,9 @@ extern abi_ulong afl_entry_point, /* ELF entry point (_start) */
 /* Set in the child process in forkserver mode: */
 
 static unsigned char afl_fork_child;
-static int init_pre_syscalls = 0;
 extern int pre_strace;
+extern int fuzz_strace;
+extern int fuzz_normal;
 extern int do_cfg;
 
 /* Instrumentation ratio: */
@@ -89,6 +91,7 @@ static inline void afl_maybe_log(abi_ulong, abi_ulong);
 static void afl_wait_tsl(CPUState*, int);
 static void afl_request_tsl(target_ulong, target_ulong, uint64_t);
 static void afl_wait_cfg(int fd);
+static void afl_wait_syscall(int fd);
 
 /* Data structure passed around by the translate handlers: */
 
@@ -187,13 +190,17 @@ static void afl_forkserver(CPUState *cpu) {
     /* Whoops, parent dead? */
 
     if (read(FORKSRV_FD, &mode, 4) != 4) exit(2);
-    printf("%s mode = %d, cfg=%d\n", __func__, mode,do_cfg);
     if (mode == PRE_STRACE) {
+        do_cfg = 0;
         pre_strace = 1;
-    } else if (mode == FUZZ_STRACE && !init_pre_syscalls) {
+        printf("Enter CFG mode\n");
+    } else if (mode == FUZZ_STRACE) {
         pre_strace = 0;
-        load_pre_syscalls();
-        init_pre_syscalls = 1;
+        fuzz_strace = 1;
+        printf("Enter PRE_STRACE mode\n");
+    } else {
+        pre_strace = 0;
+        fuzz_normal = 1;
     }
 
     /* Establish a channel with child to grab translation commands. We'll
@@ -212,7 +219,6 @@ static void afl_forkserver(CPUState *cpu) {
       afl_fork_child = 1;
       close(FORKSRV_FD);
       close(FORKSRV_FD + 1);
-      close(STRACE_FD+1);
       close(t_fd[0]);
       return;
 
@@ -221,13 +227,14 @@ static void afl_forkserver(CPUState *cpu) {
     /* Parent. */
 
     close(TSL_FD);
-    close(STRACE_FD);
 
     if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(5);
 
     /* Collect translation requests until child dies and closes the pipe. */
-    if(do_cfg)
+    if(mode == CFG)
         afl_wait_cfg(t_fd[0]);
+    else if(mode == PRE_STRACE)
+        afl_wait_syscall(t_fd[0]);
     else
         afl_wait_tsl(cpu, t_fd[0]);
 
@@ -246,11 +253,12 @@ static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
 
   /* Optimize for cur_loc > afl_end_code, which is the most likely case on
      Linux systems. */
-
+printf("afl_maybe_log.......................\n");
   if (cur_loc > afl_end_code || cur_loc < afl_start_code || !afl_area_ptr)
     return;
   if (!cfg_htable_lookup(cur_loc))
     return;
+  printf("execute instrument %lx\n", cur_loc);
 
   /* Looks like QEMU always maps to fixed locations, so ASAN is not a
      concern. Phew. But instruction addresses may be aligned. Let's mangle
@@ -311,10 +319,37 @@ static void afl_wait_cfg(int fd) {
       break;
 
     if (!cfg_htable_lookup(cfg.pc)) {
+    //printf("htable add %lx\n", cfg.pc);
         cfg_htable_add(cfg.pc);
     }
 
   }
+
+  close(fd);
+}
+
+static void afl_wait_syscall(int fd) {
+
+  int num;
+  int syscall_num = 0;
+
+  int tmp_syscalls[PRE_SYS_NUM];
+  int i, p = 0;
+  while (1) {
+
+    //if (read(fd, &num, sizeof(int)) != sizeof(int))
+    if (read(fd, &num, 4) != 4)
+      break;
+    tmp_syscalls[p] = num;
+    p = (p + 1) % PRE_SYS_NUM;
+    syscall_num++;
+
+  }
+    for(i=0;i<PRE_SYS_NUM;i++) {
+        pre_syscalls[i] = tmp_syscalls[(i+p)%PRE_SYS_NUM];
+        //printf("syscall[%d]=%d ", i, pre_syscalls[i]);
+    }
+    //printf("\nqemu recv %d syscalls\n", syscall_num);
 
   close(fd);
 }

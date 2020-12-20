@@ -215,16 +215,14 @@ static uint32_t hash32(target_ulong pc) {
         return (pc >> 32) ^ (pc & 0xffffffff);
     return pc;
 }
-#if 1
 static bool cfg_cmp(const void *p, const void *d)
 {
     const CFGPoint * cfg = p;
-    const int * pc = d;
+    const uint64_t * pc = d;
     if (cfg->pc == *pc)
         return true;
     return false;
 }
-#endif
 
 CFGPoint* cfg_htable_lookup(target_ulong pc)
 {

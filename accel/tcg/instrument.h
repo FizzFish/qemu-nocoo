@@ -45,12 +45,19 @@
    it to translate within its own context, too (this avoids translation
    overhead in the next forked-off copy). */
 
-#define NORMAL 0
+#define CFG 0
 #define PRE_STRACE 1
 #define FUZZ_STRACE 2
-#define CFG 3
+#define NORMAL 3
 
 static uint32_t pre_syscalls[PRE_SYS_NUM];
+struct qht_map {
+    struct rcu_head rcu;
+    struct qht_bucket *buckets;
+    size_t n_buckets;
+    size_t n_added_buckets;
+    size_t n_added_buckets_threshold;
+};
 
 #define AFL_QEMU_CPU_SNIPPET1 do { \
     afl_request_tsl(pc, cs_base, flags); \
@@ -166,7 +173,7 @@ static bool afl_setup(void) {
 
 
 /* Fork server logic, invoked once we hit _start. */
-
+extern struct qht cfg_htable;
 static void afl_forkserver(CPUState *cpu) {
 
   static unsigned char tmp[4];
@@ -190,14 +197,15 @@ static void afl_forkserver(CPUState *cpu) {
     /* Whoops, parent dead? */
 
     if (read(FORKSRV_FD, &mode, 4) != 4) exit(2);
-    if (mode == PRE_STRACE) {
+    if (mode == CFG) {
+        do_cfg = 1;
+    } else if (mode == PRE_STRACE) {
+    printf("htable size if %ld\n", cfg_htable.map->n_added_buckets);
         do_cfg = 0;
         pre_strace = 1;
-        printf("Enter CFG mode\n");
     } else if (mode == FUZZ_STRACE) {
         pre_strace = 0;
         fuzz_strace = 1;
-        printf("Enter PRE_STRACE mode\n");
     } else {
         pre_strace = 0;
         fuzz_normal = 1;
@@ -253,12 +261,10 @@ static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
 
   /* Optimize for cur_loc > afl_end_code, which is the most likely case on
      Linux systems. */
-printf("afl_maybe_log.......................\n");
   if (cur_loc > afl_end_code || cur_loc < afl_start_code || !afl_area_ptr)
     return;
   if (!cfg_htable_lookup(cur_loc))
     return;
-  printf("execute instrument %lx\n", cur_loc);
 
   /* Looks like QEMU always maps to fixed locations, so ASAN is not a
      concern. Phew. But instruction addresses may be aligned. Let's mangle

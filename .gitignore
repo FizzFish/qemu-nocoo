@@ -109,6 +109,8 @@
 /docs/interop/qemu-qmp-ref.info*
 /docs/interop/qemu-qmp-ref.txt
 /docs/version.texi
+/roms/seabios/config.mak
+/roms/vgabios/config.mak
 *.tps
 .stgit-*
 cscope.*

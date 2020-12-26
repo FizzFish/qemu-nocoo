@@ -200,7 +200,6 @@ static void afl_forkserver(CPUState *cpu) {
     if (mode == CFG) {
         do_cfg = 1;
     } else if (mode == PRE_STRACE) {
-    printf("htable size if %ld\n", cfg_htable.map->n_added_buckets);
         do_cfg = 0;
         pre_strace = 1;
     } else if (mode == FUZZ_STRACE) {

@@ -50,7 +50,7 @@
 #define FUZZ_STRACE 2
 #define NORMAL 3
 
-static uint32_t pre_syscalls[PRE_SYS_NUM];
+extern int pre_syscalls[PRE_SYS_NUM];
 struct qht_map {
     struct rcu_head rcu;
     struct qht_bucket *buckets;
@@ -295,6 +295,8 @@ static void afl_request_tsl(target_ulong pc, target_ulong cb, uint64_t flags) {
   struct afl_tsl t;
 
   if (!afl_fork_child) return;
+  if (pc > afl_end_code || pc < afl_start_code)
+      return;
 
   t.pc      = pc;
   t.cs_base = cb;
@@ -345,6 +347,8 @@ static void afl_wait_syscall(int fd) {
     //if (read(fd, &num, sizeof(int)) != sizeof(int))
     if (read(fd, &num, 4) != 4)
       break;
+    if(num == 202)
+        continue;
     tmp_syscalls[p] = num;
     p = (p + 1) % PRE_SYS_NUM;
     syscall_num++;
@@ -352,9 +356,9 @@ static void afl_wait_syscall(int fd) {
   }
     for(i=0;i<PRE_SYS_NUM;i++) {
         pre_syscalls[i] = tmp_syscalls[(i+p)%PRE_SYS_NUM];
-        //printf("syscall[%d]=%d ", i, pre_syscalls[i]);
+        printf("syscall[%d]=%d ", i, pre_syscalls[i]);
     }
-    //printf("\nqemu recv %d syscalls\n", syscall_num);
+    printf("\nqemu recv %d syscalls\n", syscall_num);
 
   close(fd);
 }

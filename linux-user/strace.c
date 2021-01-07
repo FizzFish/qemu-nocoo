@@ -30,13 +30,15 @@ void send_syscalls(int num) {
 
 // record fuzz syscalls
 void record_fuzz_syscall(int num) {
+    if(num == 202)
+        return;
     fuzz_syscalls[fuzz_strace_p] = num;
     fuzz_strace_p = (fuzz_strace_p + 1) % FUZZ_SYS_NUM;
 }
 // compute the lms of syscalls
 int check_ratio(void) {
     int i, j;
-    double ratio = 0.8;
+    double ratio = 0.7;
     int sim[PRE_SYS_NUM+1][FUZZ_SYS_NUM+1] = {0};
     int order_fuzz_syscalls[FUZZ_SYS_NUM];
     for(i=0;i<FUZZ_SYS_NUM;i++)
@@ -47,10 +49,11 @@ int check_ratio(void) {
                 sim[i][j] = sim[i-1][j-1] + 1;
             else
                 sim[i][j] = sim[i-1][j] > sim[i][j-1] ? sim[i-1][j] : sim[i][j-1];
+
     if (sim[PRE_SYS_NUM][FUZZ_SYS_NUM] >= ratio * FUZZ_SYS_NUM)
     {
-//        printf("find end...\n");
-//        print_syscall_array(order_fuzz_syscalls, FUZZ_SYS_NUM);
+        printf("find end...\n");
+        print_syscall_array(order_fuzz_syscalls, FUZZ_SYS_NUM);
         return 1;
     }
     return 0;

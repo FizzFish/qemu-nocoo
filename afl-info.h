@@ -3,8 +3,8 @@
 #define FORKSRV_FD          198
 #define MAP_SIZE_POW2       16
 #define MAP_SIZE            (1 << MAP_SIZE_POW2)
-#define PRE_SYS_NUM 10
-#define FUZZ_SYS_NUM 10
+#define PRE_SYS_NUM 50
+#define FUZZ_SYS_NUM 50
 
 #define STRACE_FD 192
 #define TSL_FD (FORKSRV_FD - 1)

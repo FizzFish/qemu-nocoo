@@ -255,6 +255,7 @@ static void afl_forkserver(CPUState *cpu) {
 
 
 /* The equivalent of the tuple logging routine from afl-as.h. */
+extern int no_exit;
 
 static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
 
@@ -262,7 +263,8 @@ static inline void afl_maybe_log(abi_ulong prev_loc, abi_ulong cur_loc) {
      Linux systems. */
   if (cur_loc > afl_end_code || cur_loc < afl_start_code || !afl_area_ptr)
     return;
-  if (!cfg_htable_lookup(cur_loc))
+
+  if (no_exit && !cfg_htable_lookup(cur_loc))
     return;
 
   /* Looks like QEMU always maps to fixed locations, so ASAN is not a
@@ -356,9 +358,9 @@ static void afl_wait_syscall(int fd) {
   }
     for(i=0;i<PRE_SYS_NUM;i++) {
         pre_syscalls[i] = tmp_syscalls[(i+p)%PRE_SYS_NUM];
-        printf("syscall[%d]=%d ", i, pre_syscalls[i]);
+        //printf("syscall[%d]=%d ", i, pre_syscalls[i]);
     }
-    printf("\nqemu recv %d syscalls\n", syscall_num);
+    //printf("\nqemu recv %d syscalls\n", syscall_num);
 
   close(fd);
 }

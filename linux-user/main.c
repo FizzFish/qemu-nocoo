@@ -295,6 +295,7 @@ void restore_last_branch(CPUX86State *old_env)
 }
 
 extern int critical_signal;
+int no_exit = 0;
 extern target_ulong afl_start_code, afl_end_code;
 void cpu_loop(CPUX86State *env)
 {
@@ -347,6 +348,7 @@ cpu_exec:
             /* linux syscall from syscall instruction */
             if(do_cfg && env->regs[R_EAX] == TARGET_NR_exit_group) //exit_group syscall
             {
+                no_exit = 1;
                 cfg_explore = 1;
                 goto cfg_explore;
             }

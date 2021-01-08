@@ -52,8 +52,10 @@ int check_ratio(void) {
 
     if (sim[PRE_SYS_NUM][FUZZ_SYS_NUM] >= ratio * FUZZ_SYS_NUM)
     {
+#if 0
         printf("find end...\n");
         print_syscall_array(order_fuzz_syscalls, FUZZ_SYS_NUM);
+#endif
         return 1;
     }
     return 0;
